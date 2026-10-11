@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import csv
 import json
 
@@ -59,13 +61,14 @@ def print_json(results: list[LabelResult]):
     console.print_json(json.dumps(data))
 
 
-def print_result(result: LabelResult):
-    console.print(f"\n[bold cyan]{result.path}[/bold cyan]")
-    console.print(f"  [dim]Labels:[/dim]  {', '.join(result.labels)}")
-    console.print(f"  [dim]Desc:[/dim]    {result.description}")
+def print_result(result: LabelResult, con: Console | None = None):
+    c = con or console
+    c.print(f"\n[bold cyan]{result.path}[/bold cyan]")
+    c.print(f"  [dim]Labels:[/dim]  {', '.join(result.labels) or '(none)'}")
+    c.print(f"  [dim]Desc:[/dim]    {result.description}")
     if result.people_count is not None:
-        console.print(f"  [dim]People:[/dim]  {result.people_count}")
-    console.print(f"  [dim]Colors:[/dim]  {', '.join(result.dominant_colors)}")
+        c.print(f"  [dim]People:[/dim]  {result.people_count}")
+    c.print(f"  [dim]Colors:[/dim]  {', '.join(result.dominant_colors)}")
 
 
 def print_summary(results: list[LabelResult]):

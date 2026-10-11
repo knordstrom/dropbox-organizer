@@ -179,11 +179,40 @@ def label(path, recursive, force, model, state_file, dry_run, limit, app_key, ap
     from .properties import DropboxPropertyWriter
     prop_writer = DropboxPropertyWriter(dbx) if not dry_run else None
 
-    processed = 0
+    # Phase 1: scan to determine total work
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as scan_progress:
+        scan_task = scan_progress.add_task(f"Scanning {path or '/'}...", total=None)
+        all_entries = []
+        for entry in scanner.list_photos(path, recursive):
+            all_entries.append(entry)
+            scan_progress.advance(scan_task)
+
+    console.print(f"Found [bold]{len(all_entries)}[/bold] photos in {path or '/'}.")
+
+    # Phase 2: split into to-process vs already-cached
+    to_process = []
     skipped = 0
+    for entry in all_entries:
+        if not force and state.is_processed(entry.id, entry.content_hash):
+            skipped += 1
+        else:
+            to_process.append(entry)
+
+    if limit:
+        to_process = to_process[:limit]
+
+    console.print(f"[bold]{len(to_process)}[/bold] to process, {skipped} already labeled.")
+
+    processed = 0
     errors = 0
     dry_run_estimates: list[costs.CostEstimate] = []
 
+    # Phase 3: process with known total
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -192,20 +221,12 @@ def label(path, recursive, force, model, state_file, dry_run, limit, app_key, ap
         console=console,
         transient=False,
     ) as progress:
-        task_id = progress.add_task("Labeling photos...", total=None)
+        task_id = progress.add_task("Labeling photos...", total=len(to_process))
 
-        for entry in scanner.list_photos(path, recursive):
-            if limit and processed >= limit:
-                break
-
+        for entry in to_process:
             p = entry.path_display
             h = entry.content_hash
             fid = entry.id
-
-            if not force and state.is_processed(fid, h):
-                skipped += 1
-                progress.update(task_id, description=f"[dim]Skipping (cached): {p}[/dim]")
-                continue
 
             if dry_run:
                 progress.update(task_id, description=f"Estimating: {p}")
@@ -216,7 +237,7 @@ def label(path, recursive, force, model, state_file, dry_run, limit, app_key, ap
                 progress.advance(task_id)
                 continue
 
-            progress.update(task_id, description=f"Analyzing: {p}")
+            progress.update(task_id, description=f"[{processed + 1}/{len(to_process)}] {p}")
 
             try:
                 image_bytes, media_type = downloader.download_to_bytes(p)
@@ -226,7 +247,7 @@ def label(path, recursive, force, model, state_file, dry_run, limit, app_key, ap
                     prop_writer.write_labels(p, result)
 
                 state.update(result)
-                reporter.print_result(result)
+                reporter.print_result(result, console)
                 processed += 1
                 progress.advance(task_id)
 
